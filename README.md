@@ -11,6 +11,8 @@
 Dominion P2P Protocol
 =====
 
+[![Join the chat at https://gitter.im/turbovillains/dominion](https://badges.gitter.im/turbovillains/dominion.svg)](https://gitter.im/turbovillains/dominion?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Dominion P2P protocol is designed to allow 2-6 players enjoy the game without centralized server.
 
 [More about the Dominion](https://en.wikipedia.org/wiki/Dominion_(card_game))
