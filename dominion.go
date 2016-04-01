@@ -11,7 +11,6 @@ import (
     "github.com/noroutine/dominion/protocol"
     "github.com/noroutine/dominion/cluster"
     "math/big"
-    "sort"
 )
 
 const version = "0.0.7"
@@ -110,14 +109,7 @@ func main() {
 
         fmt.Printf("Your peers in group %s:\n", *node.Group)
 
-        peers := make(cluster.Peers, 0, len(node.Peers))
-        for _, p := range node.Peers {
-            peers = append(peers, p)
-        }
-
-        sort.Sort(sort.Reverse(peers))
-
-        for _, p := range peers {
+        for _, p := range cl.Peers() {
             peerHash := p.Hash()
             peerHashInt := new(big.Int).SetBytes(peerHash)
             fmt.Printf("%s (%s:%d) %x (%v)\n", *p.Name, p.GetAddrIPv4(), p.Port, peerHash, peerHashInt)

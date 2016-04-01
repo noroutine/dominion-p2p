@@ -13,7 +13,6 @@ type Cluster struct {
     Server *Server
     Name string
     OrderId uint64
-    Peers []string      // in contrast to proxy.Peers, this is stable ordered ring
     handlers *list.List
 }
 
@@ -39,8 +38,6 @@ func (c *Cluster) Connect() {
     serviceEntry := c.proxy.GetServiceEntry()
     c.Server = NewServer(serviceEntry.AddrIPv4, serviceEntry.AddrIPv6, c.proxy.Port, c)
     c.Server.Start()
-
-    // determine order id
 }
 
 // Disconnect from the cluster and stop responding to cluster communications
@@ -51,14 +48,43 @@ func (c *Cluster) Disconnect() {
     }
 }
 
-// TODO: put the object into cluster DHT
-func (c *Cluster) Put(key string, data []byte) {
-    panic("put data not implemented")
+func (c *Cluster) PrimaryNode(o Object) *Peer {
+    peers := PeerSorter(c.Peers()).ByHash().Sort()
+    objectHash := o.Hash()
 
+    l, r := 0, len(peers)
+    if Clockwise(peers[r].Hash(), objectHash, peers[l].Hash()) {
+        return peers[r]
+    }
+
+    var m int
+    for r - l > 1 {
+        m = l + (r - l) >> 1
+
+        if Clockwise(peers[m].Hash(), objectHash, peers[r].Hash()) {
+            l = m
+        } else {
+            r = m
+        }
+    }
+
+    return peers[l]
+}
+
+// TODO: put the object into cluster DHT
+func (c *Cluster) Put(o Object) {
+    // p := c.PrimaryNode(o)
+    // find the primary node
+    // send message
+    panic("put data not implemented")
 }
 
 // TODO: get the object into cluster DHT
-func (c *Cluster) Get(key string) []byte {
+func (c *Cluster) Get(key string) Object {
+    // calculate key
+    // find the primary node
+    // send message
+    // wait for response
     panic("get data not implemented")
 }
 
@@ -95,6 +121,17 @@ func (c *Cluster) Send(to *net.UDPAddr, m *Message) error {
     defer udpCl.Close()
 
     return udpCl.Send(m)
+}
+
+func (c *Cluster) Peers() []*Peer {
+    // TODO: potential shared memory access
+    peersMap := c.proxy.Peers
+    peers := make([]*Peer, 0, len(peersMap))
+    for _, p := range peersMap {
+        peers = append(peers, &p)
+    }
+
+    return PeerSorter(peers).ByHash().Sort()
 }
 
 // Resolve cluster peer IP address by peer name

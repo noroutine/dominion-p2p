@@ -6,6 +6,7 @@ import (
     "time"
     "strings"
     "github.com/noroutine/bonjour"
+    "github.com/reusee/mmh3"
 )
 
 type Node struct {
@@ -207,6 +208,10 @@ func (node *Node) Shutdown() {
         node.server = nil
         log.Printf("Shutdown")
     }
+}
+
+func (n *Node) Hash() []byte {
+    return mmh3.Sum128([]byte(*n.Name))
 }
 
 func getPeerGroup(e *bonjour.ServiceEntry) *string {
