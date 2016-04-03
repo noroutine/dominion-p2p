@@ -69,8 +69,8 @@ func main() {
     node.Port = opts.port
     node.Group = &opts.join
 
-    node.StartDiscovery()
     node.AnnouncePresence()
+    node.StartDiscovery()
 
     cl, err := cluster.NewVia(node)
     if err != nil {
@@ -107,12 +107,33 @@ func main() {
             node.DiscoverPeers()
         }
 
-        fmt.Printf("Your peers in group %s:\n", *node.Group)
+        keyspace :=  new(big.Int).SetBytes([]byte {
+            0xFF, 0xFF,
+            0xFF, 0xFF,
+            0xFF, 0xFF,
+            0xFF, 0xFF,
+            0xFF, 0xFF,
+            0xFF, 0xFF,
+            0xFF, 0xFF,
+            0xFF, 0xFF,
+        })
 
-        for _, p := range cl.Peers() {
-            peerHash := p.Hash()
-            peerHashInt := new(big.Int).SetBytes(peerHash)
-            fmt.Printf("%s (%s:%d) %x (%v)\n", *p.Name, p.GetAddrIPv4(), p.Port, peerHash, peerHashInt)
+        fmt.Printf("Your peers in group %s:\n", *node.Group)
+        peers := cl.Peers()
+        prev := peers[len(peers) - 1]
+
+        for i, p := range cl.Peers() {
+            prevHash, peerHash := prev.Hash(), p.Hash()
+            diff := new(big.Int).Sub(new(big.Int).SetBytes(peerHash), new(big.Int).SetBytes(prevHash))
+            if i == 0 {
+                diff = diff.Add(diff, keyspace)
+            }
+
+            percent, _ := new(big.Float).Mul(new(big.Float).Quo(new(big.Float).SetInt(diff), new(big.Float).SetInt(keyspace)), big.NewFloat(100)).Float64()
+
+            fmt.Printf("%s (%s:%d) %x (%.2f%% of keys)\n", *p.Name, p.GetAddrIPv4(), p.Port, peerHash, percent)
+
+            prev = p
         }
     })
 
@@ -152,21 +173,45 @@ func main() {
         cl.Disconnect()
     })
 
+    repl.Register("find", func(args []string) {
+        if len(args) < 1 {
+            fmt.Println("Usage: find <key>")
+        }
+
+        obj := cluster.StringObject{
+            Data: &args[0],
+        }
+
+        primary, secondary := cl.HashNodes(obj.Hash())
+
+        fmt.Printf("Key %s stored by peers:\n  primary  : %s\n  secondary: %s\n", args[0], *primary.Name, *secondary.Name)
+    })
+
+    repl.Register("store", func(args []string) {
+        if len(args) < 1 {
+            fmt.Println("Usage: store <key>")
+        }
+
+        switch cl.Store([]byte(args[0]), []byte(*node.Name)) {
+        case cluster.STORE_SUCCESS: fmt.Println("Success")
+        case cluster.STORE_PARTIAL_SUCCESS: fmt.Println("Partial success")
+        case cluster.STORE_ERROR: fmt.Println("Error")
+        case cluster.STORE_FAILURE: fmt.Println("Failure")
+        }
+    })
+
     repl.Register("ping", func(args []string) {
         if len(args) < 1 {
             fmt.Println("Usage: ping <peer>")
         }
 
-        result := cl.Ping(args[0])
-
-        switch result {
-            case cluster.TIMEOUT: fmt.Println("Timeout")
-            case cluster.ERROR: fmt.Println("Error")
-            case cluster.SUCCESS: fmt.Println("Success")
-            default:
-                log.Println("Unknown result", result)
+        switch cl.Ping(args[0]) {
+        case cluster.PING_SUCCESS: fmt.Println("Success")
+        case cluster.PING_ERROR: fmt.Println("Error")
+        case cluster.PING_TIMEOUT: fmt.Println("Timeout")
         }
     })
+
 
     repl.Register("help", func(args []string) {
         fmt.Printf("Commands: %s\n", strings.Join(repl.GetKnownCommands(), ", "))

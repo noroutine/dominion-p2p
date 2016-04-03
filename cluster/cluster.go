@@ -10,6 +10,7 @@ import (
 
 type Cluster struct {
     proxy *Node
+    storage Storage
     Server *Server
     Name string
     OrderId uint64
@@ -24,10 +25,13 @@ func NewVia(node *Node) (c *Cluster, err error) {
 
     c = &Cluster{
         proxy: node,
+        storage: NewInMemoryStorage(),
         Name: *node.Group,
         handlers: list.New(),
     }
+
     c.handlers.PushBack(NewPongActivity(c))
+    c.handlers.PushBack(NewBucketActivity(c))
     return c, nil
 }
 
@@ -48,13 +52,13 @@ func (c *Cluster) Disconnect() {
     }
 }
 
-func (c *Cluster) PrimaryNode(o Object) *Peer {
+// Returns one primary node and one replication node for the object
+func (c *Cluster) HashNodes(objectHash []byte) (*Peer, *Peer){
     peers := PeerSorter(c.Peers()).ByHash().Sort()
-    objectHash := o.Hash()
 
-    l, r := 0, len(peers)
+    l, r := 0, len(peers) - 1
     if Clockwise(peers[r].Hash(), objectHash, peers[l].Hash()) {
-        return peers[r]
+        return peers[l], peers[r]
     }
 
     var m int
@@ -68,7 +72,7 @@ func (c *Cluster) PrimaryNode(o Object) *Peer {
         }
     }
 
-    return peers[l]
+    return peers[l], peers[(l - 1 + len(peers)) % len(peers)]
 }
 
 // TODO: put the object into cluster DHT
@@ -111,6 +115,16 @@ func (c *Cluster) Ping(peer string) int {
     return <- activity.Result
 }
 
+func (c *Cluster) Store(key, data []byte) int {
+    activity := NewStoreActivity(c)
+
+    e := c.handlers.PushBack(activity)
+    defer c.handlers.Remove(e)
+
+    activity.Run(key, data)
+    return <- activity.Result
+}
+
 // Send cluster message as UDP packet
 func (c *Cluster) Send(to *net.UDPAddr, m *Message) error {
     udpCl, err := NewClient(to)
@@ -128,7 +142,8 @@ func (c *Cluster) Peers() []*Peer {
     peersMap := c.proxy.Peers
     peers := make([]*Peer, 0, len(peersMap))
     for _, p := range peersMap {
-        peers = append(peers, &p)
+        pp := p
+        peers = append(peers, &pp)
     }
 
     return PeerSorter(peers).ByHash().Sort()

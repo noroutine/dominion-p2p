@@ -10,13 +10,13 @@ import (
 )
 
 const (
-    START     = iota
-    SENT_PING
-    WAIT_PONG
-    RCVD_PONG
-    SUCCESS
-    TIMEOUT
-    ERROR
+    PING_START = iota
+    PING_SENT
+    PING_WAIT_PONG
+    PING_RCVD_PONG
+    PING_SUCCESS
+    PING_TIMEOUT
+    PING_ERROR
 )
 
 type PongActivity struct {
@@ -80,16 +80,16 @@ func (a *PingActivity) Route(r *Request) (h Handler, err error)  {
 }
 
 func (a *PingActivity) Handle(r *Request) error {
-    go a.fsa.Send(RCVD_PONG)
+    go a.fsa.Send(PING_RCVD_PONG)
     return nil
 }
 
 func (a *PingActivity) Run(target string) {
     timeoutFunc := func(state int) (<-chan time.Time, func(int) int) {
-        if state == WAIT_PONG {
+        if state == PING_WAIT_PONG {
             return time.After(100*time.Millisecond), func(s int) int {
-                a.Result <- TIMEOUT
-                return TIMEOUT
+                a.Result <- PING_TIMEOUT
+                return PING_TIMEOUT
             }
         }
 
@@ -98,12 +98,12 @@ func (a *PingActivity) Run(target string) {
 
     a.fsa = fsa.New(func(state, input int) int {
         switch{
-        case state == START && input == START:
+        case state == PING_START && input == PING_START:
             targetAddr, err := a.c.GetPeerAddr(target)
             if err != nil {
                 log.Println("Cannot ping peer")
-                a.Result <- ERROR
-                return ERROR
+                a.Result <- PING_ERROR
+                return PING_ERROR
             }
 
             // send ping 
@@ -115,21 +115,21 @@ func (a *PingActivity) Run(target string) {
                 Load: []byte(*a.c.proxy.Name),
             })
 
-            go a.fsa.Send(SENT_PING)
-            return SENT_PING
-        case state == SENT_PING && input == SENT_PING:
-            return WAIT_PONG
-        case state == WAIT_PONG && input == RCVD_PONG:            
-            go a.fsa.Send(SUCCESS)
-            return RCVD_PONG
-        case state == RCVD_PONG && input == SUCCESS:
-            a.Result <- SUCCESS
-            return SUCCESS
+            go a.fsa.Send(PING_SENT)
+            return PING_SENT
+        case state == PING_SENT && input == PING_SENT:
+            return PING_WAIT_PONG
+        case state == PING_WAIT_PONG && input == PING_RCVD_PONG:
+            go a.fsa.Send(PING_SUCCESS)
+            return PING_RCVD_PONG
+        case state == PING_RCVD_PONG && input == PING_SUCCESS:
+            a.Result <- PING_SUCCESS
+            return PING_SUCCESS
         }
         log.Println("Invalid automat")
-        a.Result <- ERROR
-        return ERROR
-    }, fsa.TerminatesOn(TIMEOUT, SUCCESS, ERROR), timeoutFunc)
+        a.Result <- PING_ERROR
+        return PING_ERROR
+    }, fsa.TerminatesOn(PING_TIMEOUT, PING_SUCCESS, PING_ERROR), timeoutFunc)
 
-    go a.fsa.Send(START)
+    go a.fsa.Send(PING_START)
 }
