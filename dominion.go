@@ -188,15 +188,30 @@ func main() {
     })
 
     repl.Register("store", func(args []string) {
-        if len(args) < 1 {
-            fmt.Println("Usage: store <key>")
+        if len(args) < 2 {
+            fmt.Println("Usage: store <key> <value>")
         }
 
-        switch cl.Store([]byte(args[0]), []byte(*node.Name)) {
+        switch cl.Store([]byte(args[0]), []byte(args[1])) {
         case cluster.STORE_SUCCESS: fmt.Println("Success")
         case cluster.STORE_PARTIAL_SUCCESS: fmt.Println("Partial success")
         case cluster.STORE_ERROR: fmt.Println("Error")
         case cluster.STORE_FAILURE: fmt.Println("Failure")
+        }
+    })
+
+    repl.Register("load", func(args []string) {
+        if len(args) < 1 {
+            fmt.Println("Usage: load <key>")
+        }
+
+        data, result := cl.Load([]byte(args[0]))
+
+        switch result {
+        case cluster.LOAD_SUCCESS: fmt.Println("Success:", string(data))
+        case cluster.LOAD_PARTIAL_SUCCESS: fmt.Println("Partial success:", string(data))
+        case cluster.LOAD_ERROR: fmt.Println("Error")
+        case cluster.LOAD_FAILURE: fmt.Println("Failure")
         }
     })
 

@@ -12,6 +12,7 @@ const (
     PING                          // ping operations
     JOIN                          // join operations
     STORE                         // store operations
+    LOAD                          // load operations
 )
 
 type Message struct {

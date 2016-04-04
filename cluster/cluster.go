@@ -31,7 +31,8 @@ func NewVia(node *Node) (c *Cluster, err error) {
     }
 
     c.handlers.PushBack(NewPongActivity(c))
-    c.handlers.PushBack(NewBucketActivity(c))
+    c.handlers.PushBack(NewBucketStoreActivity(c))
+    c.handlers.PushBack(NewBucketLoadActivity(c))
     return c, nil
 }
 
@@ -123,6 +124,16 @@ func (c *Cluster) Store(key, data []byte) int {
 
     activity.Run(key, data)
     return <- activity.Result
+}
+
+func (c *Cluster) Load(key []byte) ([]byte, int) {
+    activity := NewLoadActivity(c)
+
+    e := c.handlers.PushBack(activity)
+    defer c.handlers.Remove(e)
+
+    activity.Run(key)
+    return activity.Data, <- activity.Result
 }
 
 // Send cluster message as UDP packet

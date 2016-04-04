@@ -24,31 +24,34 @@ const (
     STORE_ERROR
 )
 
-type DataTransferObject struct {
+const (
+    STORE_OP_PUT byte = iota
+    STORE_OP_ACK
+)
+type StoreDTO struct {
     Key []byte
     Value []byte
 }
 
-type BucketActivity struct {
+type BucketStoreActivity struct {
     c *Cluster
 }
 
-func NewBucketActivity(c *Cluster) *BucketActivity {
-    return &BucketActivity{
+func NewBucketStoreActivity(c *Cluster) *BucketStoreActivity {
+    return &BucketStoreActivity{
         c: c,
     }
 }
 
-func (a *BucketActivity) Route(r *Request) (h Handler, err error) {
-    // reply to ping with pong
-    if r.Message.Type == STORE && r.Message.Operation == 0 {
+func (a *BucketStoreActivity) Route(r *Request) (h Handler, err error) {
+    if r.Message.Type == STORE && r.Message.Operation == STORE_OP_PUT {
         return a, nil
     }
 
     return nil, errors.New("Cannot handle this")
 }
 
-func (a *BucketActivity) Handle(r *Request) error {
+func (a *BucketStoreActivity) Handle(r *Request) error {
 
     peer := string(r.Message.ReplyTo)
     ackAddr, err := a.c.GetPeerAddr(peer)
@@ -58,7 +61,7 @@ func (a *BucketActivity) Handle(r *Request) error {
 
     raw := bytes.NewBuffer(r.Message.Load)
     dec := gob.NewDecoder(raw)
-    var dto DataTransferObject
+    var dto StoreDTO
     err = dec.Decode(&dto)
     if err != nil {
         log.Fatal("Decode error: ", err)
@@ -68,13 +71,12 @@ func (a *BucketActivity) Handle(r *Request) error {
 
     log.Printf("Got %d bytes of data to store, sending ack to %s", r.Message.Length, peer)
 
-    // send pong back
     go a.c.Send(ackAddr, &Message{
         Version: 1,
         Type: STORE,
-        Operation: 1,   // ack
-        Length: uint16(len(*a.c.proxy.Name)),
-        Load: []byte(*a.c.proxy.Name),
+        Operation: STORE_OP_ACK,
+        ReplyTo: *a.c.proxy.Name,
+        Length: 0,
     })
 
     return nil
@@ -105,7 +107,7 @@ func (a *StoreActivity) Route(r *Request) (h Handler, err error)  {
 }
 
 func (a *StoreActivity) Handle(r *Request) error {
-    log.Println("Received ack from ", string(r.Message.Load))
+    log.Println("Received ack from ", r.Message.ReplyTo)
     go a.fsa.Send(STORE_RCVD_ACK)
     return nil
 }
@@ -120,7 +122,7 @@ func (a *StoreActivity) Run(key, data []byte) {
 
             raw := new(bytes.Buffer)
             enc := gob.NewEncoder(raw)
-            err := enc.Encode(DataTransferObject {
+            err := enc.Encode(StoreDTO {
                 Key: key,
                 Value: data,
             })
@@ -152,7 +154,7 @@ func (a *StoreActivity) Run(key, data []byte) {
             m := &Message{
                 Version: 1,
                 Type: STORE,
-                Operation: 0,   // store
+                Operation: STORE_OP_PUT,
                 ReplyTo: *a.c.proxy.Name,
                 Length: uint16(raw.Len()),
                 Load: raw.Bytes(),
@@ -185,5 +187,5 @@ func (a *StoreActivity) Run(key, data []byte) {
         return STORE_ERROR
     }, fsa.TerminatesOn(STORE_SUCCESS, STORE_PARTIAL_SUCCESS, STORE_FAILURE), fsa.NeverTimesOut())
 
-    go a.fsa.Send(PING_START)
+    go a.fsa.Send(STORE_START)
 }
