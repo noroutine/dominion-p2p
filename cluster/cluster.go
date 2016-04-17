@@ -6,6 +6,7 @@ import (
     "fmt"
     "net"
     "container/list"
+    "os"
 )
 
 type Cluster struct {
@@ -17,11 +18,18 @@ type Cluster struct {
     handlers *list.List
 }
 
+const DefaultPartitions = 127
+const partitionsKey string = "partitions"
+
 // Create a cluster instance with node as a communication proxy
-func NewVia(node *Node) (c *Cluster, err error) {
+func NewVia(node *Node, partitions int) (c *Cluster, err error) {
     if ! node.IsOperational() {
         return nil, errors.New("Node is not ready")
     }
+
+    node.SetText(map[string] string {
+        "partitions": fmt.Sprintf("%d", partitions),
+    })
 
     c = &Cluster{
         proxy: node,
@@ -40,8 +48,29 @@ func NewVia(node *Node) (c *Cluster, err error) {
 func (c *Cluster) Connect() {
     // start listening on the DHT
     c.Name = *c.proxy.Group
-    serviceEntry := c.proxy.GetServiceEntry()
-    c.Server = NewServer(serviceEntry.AddrIPv4, serviceEntry.AddrIPv6, c.proxy.Port, c)
+
+    var addrIPv4, addrIPv6 net.IP
+    hostname, err := os.Hostname()
+    addrs, err := net.LookupIP(hostname)
+    if err != nil {
+        // Try appending the host domain suffix and lookup again
+        // (required for Linux-based hosts)
+        tmpHostName := fmt.Sprintf("%s%s.", hostname, c.proxy.Domain)
+        addrs, err = net.LookupIP(tmpHostName)
+        if err != nil {
+            panic(fmt.Errorf("Could not determine host IP addresses for %s", hostname))
+        }
+    }
+
+    for i := 0; i < len(addrs); i++ {
+        if ipv4 := addrs[i].To4(); ipv4 != nil {
+            addrIPv4 = addrs[i]
+        } else if ipv6 := addrs[i].To16(); ipv6 != nil {
+            addrIPv6 = addrs[i]
+        }
+    }
+
+    c.Server = NewServer(addrIPv4, addrIPv6, c.proxy.Port, c)
     c.Server.Start()
 }
 
@@ -53,44 +82,51 @@ func (c *Cluster) Disconnect() {
     }
 }
 
-// Returns one primary node and one replication node for the object
-func (c *Cluster) HashNodes(objectHash []byte) (*Peer, *Peer){
-    peers := PeerSorter(c.Peers()).ByHash().Sort()
+// Returns one primary node and as much consistently determined replication nodes as needed for meeting consistency level
+func (c *Cluster) HashNodes(objectHash []byte, level ConsistencyLevel) []*Peer {
+    copies := c.Copies(level)
+    nodes := make([]*Peer, 0, copies)
+    partitions := c.Partitions()
 
-    l, r := 0, len(peers) - 1
-    if Clockwise(peers[r].Hash(), objectHash, peers[l].Hash()) {
-        return peers[l], peers[r]
+    // first of all determine the primary node
+    h, l, r, lenPeers := 0, 0, len(partitions) - 1, len(partitions)
+    if Clockwise(partitions[r].Hash(), objectHash, partitions[l].Hash()) {
+        h = r
+    } else {
+        var m int
+        for r - l > 1 {
+            m = l + (r - l) >> 1
+
+            if Clockwise(partitions[m].Hash(), objectHash, partitions[r].Hash()) {
+                l = m
+            } else {
+                r = m
+            }
+        }
+
+        h = l
     }
 
-    var m int
-    for r - l > 1 {
-        m = l + (r - l) >> 1
+    // build up the array - we take the pivot partition and find as many *other* peers as we need
 
-        if Clockwise(peers[m].Hash(), objectHash, peers[r].Hash()) {
-            l = m
-        } else {
-            r = m
+    for j := 0; len(nodes) < copies; j++ {
+        partition := partitions[(h - j + lenPeers) % lenPeers]
+        // if partition peer is not in nodes yet - we can add this partition
+        peerPresent := false
+        for k := 0; k < len(nodes); k++ {
+            if partition.Peer == nodes[k] {
+                // partition is from already added peer
+                peerPresent = true
+                break
+            }
+        }
+
+        if ! peerPresent {
+            nodes = append(nodes, partition.Peer)
         }
     }
 
-    return peers[l], peers[(l - 1 + len(peers)) % len(peers)]
-}
-
-// TODO: put the object into cluster DHT
-func (c *Cluster) Put(o Object) {
-    // p := c.PrimaryNode(o)
-    // find the primary node
-    // send message
-    panic("put data not implemented")
-}
-
-// TODO: get the object into cluster DHT
-func (c *Cluster) Get(key string) Object {
-    // calculate key
-    // find the primary node
-    // send message
-    // wait for response
-    panic("get data not implemented")
+    return nodes
 }
 
 // Route cluster request to concrete handler, makes Cluster a Router
@@ -116,8 +152,8 @@ func (c *Cluster) Ping(peer string) int {
     return <- activity.Result
 }
 
-func (c *Cluster) Store(key, data []byte) int {
-    activity := NewStoreActivity(c)
+func (c *Cluster) Store(key, data []byte, level ConsistencyLevel) int {
+    activity := NewStoreActivity(c, c.AdjustedConsistencyLevel(level))
 
     e := c.handlers.PushBack(activity)
     defer c.handlers.Remove(e)
@@ -126,14 +162,22 @@ func (c *Cluster) Store(key, data []byte) int {
     return <- activity.Result
 }
 
-func (c *Cluster) Load(key []byte) ([]byte, int) {
-    activity := NewLoadActivity(c)
+func (c *Cluster) Load(key []byte, level ConsistencyLevel) ([]byte, int) {
+    adjustedLevel := c.AdjustedConsistencyLevel(level)
+    activity := NewLoadActivity(c, adjustedLevel)
 
     e := c.handlers.PushBack(activity)
     defer c.handlers.Remove(e)
 
     activity.Run(key)
-    return activity.Data, <- activity.Result
+
+    data, result := activity.Data, <- activity.Result
+
+    if result == LOAD_PARTIAL_SUCCESS {
+        c.Store(key, data, adjustedLevel)
+    }
+
+    return data, result
 }
 
 // Send cluster message as UDP packet
@@ -148,16 +192,41 @@ func (c *Cluster) Send(to *net.UDPAddr, m *Message) error {
     return udpCl.Send(m)
 }
 
+func (c *Cluster) Partitions() []*PeerPartition {
+    peersMap := c.proxy.Peers
+    partitions := make([]*PeerPartition, 0, DefaultPartitions*len(peersMap))
+
+    for _, p := range peersMap {
+        pp := p.Clone()
+        for i := uint32(0); i < p.Partitions; i++ {
+            partitions = append(partitions, &PeerPartition{
+                Peer: pp,
+                Partition: i,
+            })
+        }
+    }
+
+    return PeerPartitionSorterSorter(partitions).ByHash().Sort()
+}
+
 func (c *Cluster) Peers() []*Peer {
     // TODO: potential shared memory access
     peersMap := c.proxy.Peers
     peers := make([]*Peer, 0, len(peersMap))
+
     for _, p := range peersMap {
-        pp := p
-        peers = append(peers, &pp)
+        peers = append(peers, p.Clone())
     }
 
-    return PeerSorter(peers).ByHash().Sort()
+    return peers
+}
+
+func (c *Cluster) Quorum() int {
+    return len(c.proxy.Peers) + 1
+}
+
+func (c *Cluster) Size() int {
+    return len(c.proxy.Peers)
 }
 
 // Resolve cluster peer IP address by peer name
@@ -168,7 +237,7 @@ func (c *Cluster) GetPeerAddr(peer string) (*net.UDPAddr, error) {
     }
 
     return &net.UDPAddr{
-        IP: p.GetAddrIPv4(),
+        IP: p.AddrIPv4,
         Port: p.Port,
     }, nil
 }

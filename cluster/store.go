@@ -84,15 +84,17 @@ func (a *BucketStoreActivity) Handle(r *Request) error {
 
 type StoreActivity struct {
     c *Cluster
+    level ConsistencyLevel
     fsa *fsa.FSA
     acks int
     Result chan int
 }
 
-func NewStoreActivity(c *Cluster) *StoreActivity {
+func NewStoreActivity(c *Cluster, level ConsistencyLevel) *StoreActivity {
     return &StoreActivity{
         Result: make(chan int, 1),
-        acks: 2,
+        level: level,
+        acks: c.Copies(level),
         c: c,
         fsa: nil,
     }
@@ -107,7 +109,7 @@ func (a *StoreActivity) Route(r *Request) (h Handler, err error)  {
 }
 
 func (a *StoreActivity) Handle(r *Request) error {
-    log.Println("Received ack from ", r.Message.ReplyTo)
+    log.Println("Received ACK from ", r.Message.ReplyTo)
     go a.fsa.Send(STORE_RCVD_ACK)
     return nil
 }
@@ -135,21 +137,6 @@ func (a *StoreActivity) Run(key, data []byte) {
                 panic("Load is too big")
             }
 
-            primary, secondary := a.c.HashNodes(mmh3.Sum128(key))
-            primaryAddr, err := a.c.GetPeerAddr(*primary.Name)
-            if err != nil {
-                log.Println("Cannot contact peer", *primary.Name)
-                a.Result <- STORE_ERROR
-                return STORE_ERROR
-            }
-
-            secondaryAddr, err := a.c.GetPeerAddr(*secondary.Name)
-            if err != nil {
-                log.Println("Cannot contact peer", *secondary.Name)
-                a.Result <- STORE_ERROR
-                return STORE_ERROR
-            }
-
             // send store command to primary and secondary nodes
             m := &Message{
                 Version: 1,
@@ -160,8 +147,20 @@ func (a *StoreActivity) Run(key, data []byte) {
                 Load: raw.Bytes(),
             }
 
-            go a.c.Send(primaryAddr, m)
-            go a.c.Send(secondaryAddr, m)
+            nodes := a.c.HashNodes(mmh3.Sum128(key), a.level)
+
+            a.acks = len(nodes)
+
+            for _, node := range nodes {
+                addr, err := a.c.GetPeerAddr(*node.Name)
+                if err != nil {
+                    log.Println("Cannot contact peer", *node.Name)
+                    a.Result <- STORE_ERROR
+                    return STORE_ERROR
+                }
+
+                go a.c.Send(addr, m)
+            }
 
             return STORE_WAIT_ACK
         case state == STORE_WAIT_ACK && input == STORE_RCVD_ACK:

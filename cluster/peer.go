@@ -3,10 +3,10 @@ package cluster
 
 import (
     "net"
-    "github.com/noroutine/bonjour"
     "github.com/reusee/mmh3"
     "math/big"
     "sort"
+    "strings"
 )
 
 const hash_byte_len = 16        // 128 / 8
@@ -14,39 +14,69 @@ const hash_byte_len = 16        // 128 / 8
 type Peer struct {
     Domain *string
     Name *string
+    Partitions uint32
     HostName *string
     Port int
     Group *string
-
-    entry *bonjour.ServiceEntry
+    AddrIPv4 net.IP
+    AddrIPv6 net.IP
+    Text []string
 }
 
-func (p *Peer) GetAddrIPv4() net.IP {
-    return p.entry.AddrIPv4
+type PeerPartition struct {
+    Peer *Peer
+    Partition uint32
 }
 
-func (p *Peer) GetAddrIPv6() net.IP {
-    return p.entry.AddrIPv6
+func (p *Peer) Clone() *Peer {
+    return &Peer{
+        Domain: p.Domain,
+        Name: p.Name,
+        Partitions: p.Partitions,
+        HostName: p.HostName,
+        Port: p.Port,
+        Group: p.Group,
+        AddrIPv4: p.AddrIPv4,
+        AddrIPv6: p.AddrIPv6,
+        Text: p.Text,
+    }
 }
 
-func (p *Peer) Hash() []byte {
-    return mmh3.Sum128([]byte(*p.Name))
+func (p *Peer) getText(key string) *string {
+    ketEq := key + "="
+    for _, s := range p.Text {
+        if strings.HasPrefix(s, ketEq) {
+            value := strings.TrimPrefix(s, ketEq)
+            return &value
+        }
+    }
+
+    return nil
 }
 
-type peerSorter struct {
-    peers []*Peer
-    less func (*Peer, *Peer) bool
+func (p *PeerPartition) Hash() []byte {
+    return mmh3.Sum128(append([]byte(*p.Peer.Name),
+        byte(p.Partition >> 24),
+        byte(p.Partition >> 16),
+        byte(p.Partition >> 8),
+        byte(p.Partition),
+    ))
 }
 
-func PeerSorter(ps []*Peer) *peerSorter {
-    return &peerSorter{
-        peers: ps,
+type peerPartitionSorter struct {
+    partitions []*PeerPartition
+    less       func (*PeerPartition, *PeerPartition) bool
+}
+
+func PeerPartitionSorterSorter(ps []*PeerPartition) *peerPartitionSorter {
+    return &peerPartitionSorter{
+        partitions: ps,
         less: nil,
     }
 }
 
-func (sorter *peerSorter) ByHash() *peerSorter {
-    sorter.less = func (p1, p2 *Peer) bool {
+func (sorter *peerPartitionSorter) ByHash() *peerPartitionSorter {
+    sorter.less = func (p1, p2 *PeerPartition) bool {
         iHash := new(big.Int).SetBytes(p1.Hash())
         jHash := new(big.Int).SetBytes(p2.Hash())
         return iHash.Cmp(jHash) < 0
@@ -55,20 +85,20 @@ func (sorter *peerSorter) ByHash() *peerSorter {
     return sorter
 }
 
-func (sorter *peerSorter) Sort() []*Peer {
+func (sorter *peerPartitionSorter) Sort() []*PeerPartition {
     sort.Sort(sorter)
-    return sorter.peers
+    return sorter.partitions
 }
 
-func (hs *peerSorter) Len() int {
-    return len(hs.peers)
+func (hs *peerPartitionSorter) Len() int {
+    return len(hs.partitions)
 }
 
-func (hs *peerSorter) Swap(i, j int) {
-    ps := hs.peers
+func (hs *peerPartitionSorter) Swap(i, j int) {
+    ps := hs.partitions
     ps[i], ps[j] = ps[j], ps[i]
 }
 
-func (sorter *peerSorter) Less(i, j int) bool {
-    return sorter.less(sorter.peers[i], sorter.peers[j])
+func (sorter *peerPartitionSorter) Less(i, j int) bool {
+    return sorter.less(sorter.partitions[i], sorter.partitions[j])
 }

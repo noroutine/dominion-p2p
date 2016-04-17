@@ -7,6 +7,7 @@ import (
     "strings"
     "github.com/noroutine/bonjour"
     "github.com/reusee/mmh3"
+    "strconv"
 )
 
 type Node struct {
@@ -15,6 +16,7 @@ type Node struct {
     Port int
     Group *string
     server *bonjour.Server
+    text map[string]string
     discoverLoopCh chan int
     Left chan Peer
     Joined chan Peer
@@ -30,7 +32,7 @@ const ServiceType = "_dominion._tcp"
 const DefaultPort = 9999
 const browseWindow = 200 * time.Millisecond
 const discoveryInterval = 5 * time.Second
-const groupTextParameter = "group="
+const groupKey = "group"
 
 func NewNode(domain string, name string) *Node {
     return &Node{
@@ -40,6 +42,7 @@ func NewNode(domain string, name string) *Node {
         Group:          nil,
         server:         nil,
         discoverLoopCh: nil,
+        text:           make(map[string]string),
         Peers:          map[string]Peer{},
         Left:           make(chan Peer, 10),
         Joined:         make(chan Peer, 10),
@@ -87,8 +90,11 @@ L:
                         Name:         &e.Instance,
                         Group:        g,
                         HostName:     &e.HostName,
+                        Partitions:   getPeerPartitions(e),
                         Port:         e.Port,
-                        entry:        e,
+                        AddrIPv4:     e.AddrIPv4,
+                        AddrIPv6:     e.AddrIPv6,
+                        Text:         e.Text,
                     }
                 }
             }
@@ -150,7 +156,7 @@ func (node *Node) IsDiscoveryActive() bool {
 func (node *Node) AnnouncePresence() {
     // Run registration (blocking call)
     if node.server == nil {
-        s, err := bonjour.Register(*node.Name, ServiceType, "", node.Port, node.getGroupText(), nil)
+        s, err := bonjour.Register(*node.Name, ServiceType, "", node.Port, node.getNodeText(), nil)
         if err != nil {
             log.Fatalln(err.Error())
         } else {
@@ -192,13 +198,8 @@ func (node *Node) AnnounceName(newName string) {
 func (node *Node) AnnounceGroup(newGroup *string) {
     node.Group = newGroup
     if (node.server != nil) {
-        node.server.SetText(node.getGroupText())
+        node.server.SetText(node.getNodeText())
     }
-}
-
-// Get lower-level Bonjour service entry for the node
-func (node *Node) GetServiceEntry() *bonjour.ServiceEntry {
-    return node.Peers[*node.Name].entry
 }
 
 // Shutdown the node, opposite of announcing
@@ -216,8 +217,8 @@ func (n *Node) Hash() []byte {
 
 func getPeerGroup(e *bonjour.ServiceEntry) *string {
     for _, s := range e.Text {
-        if strings.HasPrefix(s, groupTextParameter) {
-            group := strings.TrimPrefix(s, groupTextParameter)
+        if strings.HasPrefix(s, groupKey + "=") {
+            group := strings.TrimPrefix(s, groupKey + "=")
             return &group
         }
     }
@@ -225,10 +226,47 @@ func getPeerGroup(e *bonjour.ServiceEntry) *string {
     return nil
 }
 
-func (node *Node) getGroupText() []string {
-    if node.Group != nil {
-        return []string{ groupTextParameter + *node.Group}
-    } else {
-        return []string{}
+func getPeerPartitions(e *bonjour.ServiceEntry) uint32 {
+    var partitionsValue *string
+    for _, s := range e.Text {
+        if strings.HasPrefix(s, partitionsKey + "=") {
+            partitionTextValue := strings.TrimPrefix(s, partitionsKey + "=")
+            partitionsValue = &partitionTextValue
+        }
     }
+
+    if partitionsValue == nil {
+        return 1
+    } else {
+        partitions, err := strconv.ParseUint(*partitionsValue, 10, 32)
+        if err != nil {
+            return uint32(1)
+        } else {
+            return uint32(partitions)
+        }
+    }
+}
+
+func (node *Node) getNodeText() []string {
+    text := make([]string, 0, len(node.text) + 1)
+    for k, v := range node.text {
+        text = append(text, k + "=" + v)
+    }
+
+    if node.Group != nil {
+        text = append(text, groupKey + "=" + *node.Group)
+    }
+
+    return text
+}
+
+func (node *Node) SetText(text map[string]string) {
+    node.text = text
+    if (node.server != nil) {
+        node.server.SetText(node.getNodeText())
+    }
+}
+
+func (node *Node) GetText() map[string]string {
+    return node.text
 }
