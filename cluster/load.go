@@ -166,7 +166,7 @@ func (a *LoadActivity) Handle(r *Request) error {
 func (a *LoadActivity) Run(key []byte) {
     timeoutFunc := func(state int) (<-chan time.Time, func(int) int) {
         if state == LOAD_WAIT_ACK {
-            return time.After(100*time.Millisecond), func(s int) int {
+            return time.After(1000*time.Millisecond), func(s int) int {
                 go a.fsa.Send(LOAD_RCVD_NACK)
                 return LOAD_WAIT_ACK
             }
@@ -231,12 +231,12 @@ func (a *LoadActivity) Run(key []byte) {
             case a.acks == a.copies:
                 go a.fsa.Send(LOAD_FULL_ACK)
                 return LOAD_FULL_ACK
-            case a.acks + a.nacks == a.copies:
-                go a.fsa.Send(LOAD_PARTIAL_ACK)
-                return LOAD_PARTIAL_ACK
             case a.nacks == a.copies:
                 go a.fsa.Send(LOAD_NO_ACK)
                 return LOAD_NO_ACK
+            case a.acks + a.nacks == a.copies:
+                go a.fsa.Send(LOAD_PARTIAL_ACK)
+                return LOAD_PARTIAL_ACK
             default:
                 return LOAD_WAIT_ACK
             }
@@ -251,12 +251,12 @@ func (a *LoadActivity) Run(key []byte) {
             case a.acks == a.copies:
                 go a.fsa.Send(LOAD_FULL_ACK)
                 return LOAD_FULL_ACK
-            case a.acks + a.nacks == a.copies:
-                go a.fsa.Send(LOAD_PARTIAL_ACK)
-                return LOAD_PARTIAL_ACK
             case a.nacks == a.copies:
                 go a.fsa.Send(LOAD_NO_ACK)
                 return LOAD_NO_ACK
+            case a.acks + a.nacks == a.copies:
+                go a.fsa.Send(LOAD_PARTIAL_ACK)
+                return LOAD_PARTIAL_ACK
             default:
                 return LOAD_WAIT_ACK
             }

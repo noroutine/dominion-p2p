@@ -8,11 +8,13 @@ import (
     "github.com/noroutine/bonjour"
     "github.com/reusee/mmh3"
     "strconv"
+    "os"
 )
 
 type Node struct {
     Domain *string
     Name *string
+    Bind string
     Port int
     Group *string
     server *bonjour.Server
@@ -30,7 +32,7 @@ type Data struct {
 
 const ServiceType = "_dominion._tcp"
 const DefaultPort = 9999
-const browseWindow = 200 * time.Millisecond
+const browseWindow = 1000 * time.Millisecond
 const discoveryInterval = 5 * time.Second
 const groupKey = "group"
 
@@ -38,6 +40,7 @@ func NewNode(domain string, name string) *Node {
     return &Node{
         Domain:         &domain,
         Name:           &name,
+        Bind:           "127.0.0.1",
         Port:           DefaultPort,
         Group:          nil,
         server:         nil,
@@ -156,7 +159,8 @@ func (node *Node) IsDiscoveryActive() bool {
 func (node *Node) AnnouncePresence() {
     // Run registration (blocking call)
     if node.server == nil {
-        s, err := bonjour.Register(*node.Name, ServiceType, "", node.Port, node.getNodeText(), nil)
+        hostname, _ := os.Hostname()
+        s, err := bonjour.RegisterProxy(*node.Name, ServiceType, *node.Domain, node.Port, hostname, node.Bind, node.getNodeText(), nil)
         if err != nil {
             log.Fatalln(err.Error())
         } else {

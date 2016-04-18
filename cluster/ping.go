@@ -87,7 +87,7 @@ func (a *PingActivity) Handle(r *Request) error {
 func (a *PingActivity) Run(target string) {
     timeoutFunc := func(state int) (<-chan time.Time, func(int) int) {
         if state == PING_WAIT_PONG {
-            return time.After(100*time.Millisecond), func(s int) int {
+            return time.After(1000*time.Millisecond), func(s int) int {
                 a.Result <- PING_TIMEOUT
                 return PING_TIMEOUT
             }

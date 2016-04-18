@@ -6,7 +6,6 @@ import (
     "fmt"
     "net"
     "container/list"
-    "os"
 )
 
 type Cluster struct {
@@ -48,29 +47,7 @@ func NewVia(node *Node, partitions int) (c *Cluster, err error) {
 func (c *Cluster) Connect() {
     // start listening on the DHT
     c.Name = *c.proxy.Group
-
-    var addrIPv4, addrIPv6 net.IP
-    hostname, err := os.Hostname()
-    addrs, err := net.LookupIP(hostname)
-    if err != nil {
-        // Try appending the host domain suffix and lookup again
-        // (required for Linux-based hosts)
-        tmpHostName := fmt.Sprintf("%s%s.", hostname, c.proxy.Domain)
-        addrs, err = net.LookupIP(tmpHostName)
-        if err != nil {
-            panic(fmt.Errorf("Could not determine host IP addresses for %s", hostname))
-        }
-    }
-
-    for i := 0; i < len(addrs); i++ {
-        if ipv4 := addrs[i].To4(); ipv4 != nil {
-            addrIPv4 = addrs[i]
-        } else if ipv6 := addrs[i].To16(); ipv6 != nil {
-            addrIPv6 = addrs[i]
-        }
-    }
-
-    c.Server = NewServer(addrIPv4, addrIPv6, c.proxy.Port, c)
+    c.Server = NewServer(c.proxy.Port, c)
     c.Server.Start()
 }
 
