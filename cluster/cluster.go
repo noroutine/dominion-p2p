@@ -13,7 +13,6 @@ type Cluster struct {
     storage Storage
     Server *Server
     Name string
-    OrderId uint64
     handlers *list.List
 }
 
@@ -210,7 +209,7 @@ func (c *Cluster) Size() int {
 func (c *Cluster) GetPeerAddr(peer string) (*net.UDPAddr, error) {
     p, ok := c.proxy.Peers[peer]
     if !ok {
-        return nil, errors.New(fmt.Sprintf("Peer not available: %s", peer))
+        return nil, fmt.Errorf("Peer not available: %s", peer)
     }
 
     return &net.UDPAddr{

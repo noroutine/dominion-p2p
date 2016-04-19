@@ -221,7 +221,7 @@ func main() {
             Data: &args[0],
         }
 
-        nodes := cl.HashNodes(obj.Hash(), cluster.LEVEL_TWO)
+        nodes := cl.HashNodes(obj.Hash(), cluster.ConsistencyLevelTwo)
         primary, secondary := nodes[0], nodes[1]
         fmt.Printf("Key %s stored by peers:\n  primary  : %s\n  secondary: %s\n", args[0], *primary.Name, *secondary.Name)
     })
@@ -232,7 +232,7 @@ func main() {
             return
         }
 
-        switch cl.Store([]byte(args[0]), []byte(args[1]), cluster.LEVEL_TWO) {
+        switch cl.Store([]byte(args[0]), []byte(args[1]), cluster.ConsistencyLevelTwo) {
         case cluster.STORE_SUCCESS: fmt.Println("Success")
         case cluster.STORE_PARTIAL_SUCCESS: fmt.Println("Partial success")
         case cluster.STORE_ERROR: fmt.Println("Error")
@@ -246,7 +246,7 @@ func main() {
             return
         }
 
-        data, result := cl.Load([]byte(args[0]), cluster.LEVEL_TWO)
+        data, result := cl.Load([]byte(args[0]), cluster.ConsistencyLevelTwo)
 
         switch result {
         case cluster.LOAD_SUCCESS: fmt.Println("Success:", string(data))

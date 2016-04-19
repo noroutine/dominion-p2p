@@ -13,7 +13,7 @@
 		},
 		{
 			"ImportPath": "github.com/noroutine/go-cli",
-			"Rev": "b3bb313458f3d4f2e8b6628acc4fbdfcd5bec297"
+			"Rev": "dca41d661d2082dfa07bb53588781ca5f7c70b52"
 		},
 		{
 			"ImportPath": "github.com/noroutine/go-readline",

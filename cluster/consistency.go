@@ -5,28 +5,28 @@ import "log"
 type ConsistencyLevel byte
 
 const (
-    LEVEL_ZERO      ConsistencyLevel = iota     // any single node
-    LEVEL_ONE                                   // +1 replica
-    LEVEL_TWO                                   // +2 replicas
-    LEVEL_THREE                                 // +3 replicas
+    ConsistencyLevelZero ConsistencyLevel = iota          // any single node
+    ConsistencyLevelOne                                   // +1 replica
+    ConsistencyLevelTwo                                   // +2 replicas
+    ConsistencyLevelThree                                 // +3 replicas
 
-    LEVEL_QUORUM    ConsistencyLevel = 0x7F     // N / 2 + 1 copies
-    LEVEL_ALL       ConsistencyLevel = 0xFF     // N copies
+    ConsistencyLevelQuorum ConsistencyLevel = 0x7F        // N / 2 + 1 copies
+    ConsistencyLevelAll ConsistencyLevel = 0xFF           // N copies
 )
 
 func (c *Cluster) Copies(level ConsistencyLevel) int {
     switch c.AdjustedConsistencyLevel(level) {
-    case LEVEL_ZERO:
+    case ConsistencyLevelZero:
         return 1
-    case LEVEL_ONE:
+    case ConsistencyLevelOne:
         return 2
-    case LEVEL_TWO:
+    case ConsistencyLevelTwo:
         return 3
-    case LEVEL_THREE:
+    case ConsistencyLevelThree:
         return 4
-    case LEVEL_QUORUM:
+    case ConsistencyLevelQuorum:
         return c.Quorum()
-    case LEVEL_ALL:
+    case ConsistencyLevelAll:
         return c.Size()
     default:
         return 1
@@ -35,7 +35,7 @@ func (c *Cluster) Copies(level ConsistencyLevel) int {
 
 func (c *Cluster) AdjustedConsistencyLevel(level ConsistencyLevel) ConsistencyLevel {
 
-    if level == LEVEL_QUORUM || level == LEVEL_ALL {
+    if level == ConsistencyLevelQuorum || level == ConsistencyLevelAll {
         return level
     }
 
@@ -43,13 +43,13 @@ func (c *Cluster) AdjustedConsistencyLevel(level ConsistencyLevel) ConsistencyLe
 
     switch c.Size() {
     case 1:
-        highest = LEVEL_ZERO
+        highest = ConsistencyLevelZero
     case 2:
-        highest = LEVEL_ONE
+        highest = ConsistencyLevelOne
     case 3:
-        highest = LEVEL_TWO
+        highest = ConsistencyLevelTwo
     case 4:
-        highest = LEVEL_THREE
+        highest = ConsistencyLevelThree
     default:
         highest = level
     }
@@ -57,7 +57,7 @@ func (c *Cluster) AdjustedConsistencyLevel(level ConsistencyLevel) ConsistencyLe
     if highest < level {
         log.Println("Lowering consistency level due to insufficient cluster size to", highest)
         return highest
-    } else {
-        return level
     }
+
+    return level
 }
