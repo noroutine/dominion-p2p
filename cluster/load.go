@@ -68,7 +68,7 @@ func (a *BucketLoadActivity) Handle(r *Request) error {
     data, ok := a.c.storage.Get(dto.Key)
     if ok {
         // send ack
-        log.Printf("Got request for key %s, sending ACK to %s", dto.Key, peer)
+        //log.Printf("Got request for key %s, sending ACK to %s", dto.Key, peer)
 
         raw := new(bytes.Buffer)
         enc := gob.NewEncoder(raw)
@@ -95,7 +95,7 @@ func (a *BucketLoadActivity) Handle(r *Request) error {
         })
     } else {
         // send NACK
-        log.Printf("Got request for key %s, sending NACK to %s", dto.Key, peer)
+        //log.Printf("Got request for key %s, sending NACK to %s", dto.Key, peer)
         go a.c.Send(ackAddr, &Message{
             Version: 1,
             Type: LOAD,
@@ -143,7 +143,7 @@ func (a *LoadActivity) Route(r *Request) (h Handler, err error)  {
 func (a *LoadActivity) Handle(r *Request) error {
     switch r.Message.Operation {
     case LOAD_OP_ACK:
-        log.Println("Received ACK from ", r.Message.ReplyTo)
+        //log.Println("Received ACK from ", r.Message.ReplyTo)
 
         raw := bytes.NewBuffer(r.Message.Load)
         dec := gob.NewDecoder(raw)
@@ -157,7 +157,7 @@ func (a *LoadActivity) Handle(r *Request) error {
 
         go a.fsa.Send(LOAD_RCVD_ACK)
     case LOAD_OP_NACK:
-        log.Println("Received NACK from ", r.Message.ReplyTo)
+        //log.Println("Received NACK from ", r.Message.ReplyTo)
         go a.fsa.Send(LOAD_RCVD_NACK)
     }
     return nil

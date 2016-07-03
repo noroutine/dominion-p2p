@@ -69,7 +69,7 @@ func (a *BucketStoreActivity) Handle(r *Request) error {
 
     a.c.storage.Put(dto.Key, dto.Value)
 
-    log.Printf("Got %d bytes of data to store, sending ack to %s", r.Message.Length, peer)
+    //log.Printf("Got %d bytes of data to store, sending ack to %s", r.Message.Length, peer)
 
     go a.c.Send(ackAddr, &Message{
         Version: 1,
@@ -109,7 +109,7 @@ func (a *StoreActivity) Route(r *Request) (h Handler, err error)  {
 }
 
 func (a *StoreActivity) Handle(r *Request) error {
-    log.Println("Received ACK from ", r.Message.ReplyTo)
+    //log.Println("Received ACK from ", r.Message.ReplyTo)
     go a.fsa.Send(STORE_RCVD_ACK)
     return nil
 }

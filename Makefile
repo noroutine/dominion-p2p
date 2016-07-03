@@ -14,7 +14,7 @@ dominion: dep *.go
 	godep go build
 
 test:
-	godep go test
+	godep go test -v ./...
 
 run:
 	godep go run

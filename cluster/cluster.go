@@ -158,7 +158,7 @@ func (c *Cluster) Load(key []byte, level ConsistencyLevel) ([]byte, int) {
 
 // Send cluster message as UDP packet
 func (c *Cluster) Send(to *net.UDPAddr, m *Message) error {
-    udpCl, err := NewClient(to)
+    udpCl, err := NewUdpClient(to)
     if err != nil {
         return err
     }
