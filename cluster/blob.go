@@ -4,6 +4,8 @@ import (
     "io"
     "fmt"
     "errors"
+    "bytes"
+    "encoding/gob"
 )
 
 /* Thoughts
@@ -50,22 +52,74 @@ type Blob struct {
     client *Client
     key []byte
     pos int64
+    size int64
     consistencyLevel ConsistencyLevel
     pageSize int64
     pages map[int][]byte
 }
 
-func (client *Client) OpenBlob(key []byte) *Blob {
-    // load blob data
+type BlobRoot struct {
+    Size int64
+}
 
-    return &Blob{
+func (client *Client) CreateBlob(key []byte, size int64, consistencyLevel ConsistencyLevel) (*Blob, error) {
+
+    var blobRootByteBuffer bytes.Buffer
+    enc := gob.NewEncoder(&blobRootByteBuffer)
+    if err := enc.Encode(BlobRoot{Size: size}); err != nil {
+        return nil, errors.New("Cannot encode blob root")
+    }
+
+    switch client.Store(key, blobRootByteBuffer.Bytes(), consistencyLevel) {
+    case STORE_FAILURE, STORE_ERROR:
+        return nil, errors.New("Cannot create blob")
+    case STORE_SUCCESS, STORE_PARTIAL_SUCCESS:
+        // fine
+    default:
+        return nil, errors.New("Cannot create blob")
+    }
+
+    blob := &Blob{
         client: client,
         key: key,
         pos: 0,
-        consistencyLevel: ConsistencyLevelTwo,
+        size: size,
+        consistencyLevel: consistencyLevel,
         pageSize: BlockSize,
         pages: make(map[int][]byte),
     }
+
+    return blob, nil
+}
+
+func (client *Client) OpenBlob(key []byte, consistencyLevel ConsistencyLevel) (*Blob, error) {
+    blobRootBytes, loadResult := client.Load(key, consistencyLevel)
+
+    blob := &Blob{
+        client: client,
+        key: key,
+        pos: 0,
+        size: 0,
+        consistencyLevel: consistencyLevel,
+        pageSize: BlockSize,
+        pages: make(map[int][]byte),
+    }
+
+    switch loadResult {
+    case LOAD_SUCCESS, LOAD_PARTIAL_SUCCESS:
+        blobRootByteBuffer := bytes.NewBuffer(blobRootBytes)
+        dec := gob.NewDecoder(blobRootByteBuffer)
+        var blobRoot BlobRoot
+        if err := dec.Decode(&blobRoot); err != nil {
+            return nil, errors.New("Cannot decode blob root")
+        } else {
+            blob.size = blobRoot.Size
+        }
+    default:
+        return nil, errors.New("Cannot load blob")
+    }
+
+    return blob, nil
 }
 
 func (blob *Blob) GetPageIndex(offset int64) int64 {
@@ -78,8 +132,14 @@ func (blob *Blob) GetPageKey(offset int64) []byte {
 }
 
 func (blob *Blob) LoadPageAtPosition(position int64) ([]byte, int) {
-    return blob.client.Load(
+    page, result := blob.client.Load(
         blob.GetPageKey(position), blob.consistencyLevel)
+
+    if result == LOAD_FAILURE {
+        page, result = make([]byte, BlockSize), LOAD_SUCCESS
+    }
+
+    return page, result
 }
 
 func (blob *Blob) FlushPageAtPosition(position int64, page []byte) int {
@@ -95,7 +155,7 @@ func (blob *Blob) Seek(offset int64, whence int) (n int64, err error) {
     case 1:
         newPos += offset
     case 2:
-        return blob.pos, errors.New("Not imeplemented")
+        newPos = blob.size + offset
     default:
         return blob.pos, errors.New("Unknown whence, shall be 0, 1 or 2")
     }
@@ -122,6 +182,10 @@ func (blob *Blob) WriteByte(c byte) error {
 }
 
 func (blob *Blob) WriteByteAt(c byte, position int64) error {
+    if position >= blob.size {
+        return errors.New("Attempt to write after the end of blob")
+    }
+
     page, result := blob.LoadPageAtPosition(position)
     pageOffset := position % blob.pageSize
 
@@ -175,6 +239,10 @@ func (blob *Blob) ReadByte() (c byte, err error) {
 }
 
 func (blob *Blob) ReadByteAt(position int64) (c byte, err error) {
+    if position >= blob.size {
+        return 0, errors.New("Attempt to read after the end of blob")
+    }
+
     page, result := blob.LoadPageAtPosition(position)
     pageOffset := position % blob.pageSize
     switch result {
@@ -211,4 +279,8 @@ func (blob *Blob) ReadFrom(r io.Reader) (n int64, err error) {
 
 func (blob *Blob) Close() error {
     return nil
+}
+
+func (blob *Blob) Size() int64 {
+    return blob.size
 }
